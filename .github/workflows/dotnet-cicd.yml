@@ -13,11 +13,11 @@ on:
       - ".github/workflows/dotnet-cicd.yml"
 
 env:
-  RESOURCE_GROUP: "openhackjlq85zk4rg"
-  APP_NAME: "openhackjlq85zk4poi"
+  RESOURCE_GROUP: "githubworkshop2021-rg"
+  APP_NAME: "githubworkshop2021"
   CONTAINER_NAME: "devopsoh/api-poi"
-  STAGING_ENDPOINT: "https://openhackjlq85zk4poi-staging.azurewebsites.net/api/healthcheck/poi"
-  PRODUCTION_ENDPOINT: "https://openhackjlq85zk4poi.azurewebsites.net/api/healthcheck/poi"
+  STAGING_ENDPOINT: "https://githubworkshop2021-staging.azurewebsites.net/api/healthcheck/poi"
+  PRODUCTION_ENDPOINT: "https://githubworkshop2021.azurewebsites.net/api/healthcheck/poi"
 
 jobs:
   test:
@@ -97,7 +97,7 @@ jobs:
         run: az webapp start --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.APP_NAME }} --slot staging
 
   swap:
-    name: Swap that donkey 🐴
+    name: Swap
     needs: staging
 
     runs-on: ubuntu-latest

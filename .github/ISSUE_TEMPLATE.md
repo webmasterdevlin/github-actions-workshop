@@ -1,6 +1,6 @@
 ---
 title: Test failed
-assignees: kongebra, tommy-trn, Jaanesen
+assignees:
 labels: bug, enhancement
 ---
 
