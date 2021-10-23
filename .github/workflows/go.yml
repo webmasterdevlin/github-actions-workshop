@@ -1,0 +1,83 @@
+name: Go CI/CD Workflow
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apis/trips/**"
+      - ".github/workflows/go.yml"
+
+  pull_request:
+    paths:
+      - "apis/trips/**"
+      - ".github/workflows/go.yml"
+
+jobs:
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apis/trips
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.11
+
+      - name: Go Mod Get
+        run: go get
+
+      - uses: actions/checkout@v2
+      - name: Test
+        run: go test ./tests
+      
+      - name: Open Issue
+        if: ${{ failure() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: JasonEtco/create-an-issue@v2
+
+
+
+  deploy:
+    name: Deploy
+
+    if: ${{ github.ref == 'refs/heads/master' }}
+    needs: [test]
+
+    runs-on: ubuntu-latest
+
+    env:
+      APP_NAME: "openhackjlq85zk4trips"
+      CONTAINER_NAME: "devopsoh/api-trips"
+
+    defaults:
+      run:
+        working-directory: ./apis/trips
+        
+    steps:
+      # checkout the repo
+      - name: "Checkout GitHub Action"
+        uses: actions/checkout@main
+
+      - name: "Build and push image"
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - run: |
+          docker build . -t ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.CONTAINER_NAME }}:${{ github.run_number }}
+          docker push ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.CONTAINER_NAME }}:${{ github.run_number }}
+      - uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.APP_NAME }}
+          slot-name: staging
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_TRIPS }}
+          images: "${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.CONTAINER_NAME }}:${{ github.run_number }}"
+

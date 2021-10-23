@@ -1,0 +1,84 @@
+#Workflow name
+name: Java CI/CD workflow
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apis/user-java/src/main/**"
+      - ".github/workflows/java-cicd.yml"
+
+  pull_request:
+    paths:
+      - "apis/user-java/**"
+      - ".github/workflows/java-cicd.yml"
+
+jobs:
+  test:
+    name: Test
+
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apis/user-java
+
+    steps:
+      - uses: actions/checkout@v2
+
+      #Set up JDK 11
+      - name: Set up JDK 11
+        uses: actions/setup-java@v2
+        with:
+          java-version: "11"
+          distribution: "adopt"
+          cache: maven
+      #Build the application using Maven
+      - name: Build with Maven
+        run: mvn -B package -DskipTests --file pom.xml
+      #Run Tests
+      - name: Run Tests
+        run: mvn -B test
+
+        #Create issue 
+      - name: Create Issue
+        if: ${{ failure() }}
+        uses: JasonEtco/create-an-issue@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy:
+    name: Deploy
+
+    if: ${{ github.ref == 'refs/heads/master' }}
+    needs: [test]
+
+    runs-on: ubuntu-latest
+
+    env:
+      APP_NAME: "openhackjlq85zk4userjava"
+      CONTAINER_NAME: "devopsoh/api-user-java"
+
+    defaults:
+      run:
+        working-directory: ./apis/user-java
+    steps:
+      # checkout the repo
+      - name: "Checkout GitHub Action"
+        uses: actions/checkout@main
+
+      - name: "Build and push image"
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - run: |
+          docker build . -t ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.CONTAINER_NAME }}:${{ github.run_number }}
+          docker push ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.CONTAINER_NAME }}:${{ github.run_number }}
+
+      - uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.APP_NAME }}
+          slot-name: staging
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_USER_JAVA }}
+          images: "${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.CONTAINER_NAME }}:${{ github.run_number }}"
+

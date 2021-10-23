@@ -1,0 +1,166 @@
+name: .NET CI/CD workflow
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apis/poi/web/**"
+      - ".github/workflows/dotnet-cicd.yml"
+
+  pull_request:
+    paths:
+      - "apis/poi/**"
+      - ".github/workflows/dotnet-cicd.yml"
+
+env:
+  RESOURCE_GROUP: "openhackjlq85zk4rg"
+  APP_NAME: "openhackjlq85zk4poi"
+  CONTAINER_NAME: "devopsoh/api-poi"
+  STAGING_ENDPOINT: "https://openhackjlq85zk4poi-staging.azurewebsites.net/api/healthcheck/poi"
+  PRODUCTION_ENDPOINT: "https://openhackjlq85zk4poi.azurewebsites.net/api/healthcheck/poi"
+
+jobs:
+  test:
+    name: Test
+
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apis/poi
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 2.1.x
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore
+
+      - name: Test
+        run: dotnet test /p:CollectCoverage=true /p:CoverletOutput=TestResults/ /p:CoverletOutputFormat=lcov
+
+      - name: Create Issue
+        if: ${{ failure() }}
+        uses: JasonEtco/create-an-issue@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Coveralls Coverage
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: apis/poi/tests/UnitTests/TestResults/coverage.info
+
+  staging:
+    name: Deploy to Staging
+
+    if: ${{ github.ref == 'refs/heads/master' }}
+    needs: [test]
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./apis/poi/web
+
+    steps:
+      - name: "Checkout GitHub Action"
+        uses: actions/checkout@main
+      - uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: "Build and push image"
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - run: |
+          docker build . -t ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.CONTAINER_NAME }}:${{ github.run_number }}
+          docker push ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.CONTAINER_NAME }}:${{ github.run_number }}
+
+      - uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.APP_NAME }}
+          slot-name: staging
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_POI }}
+          images: "${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.CONTAINER_NAME }}:${{ github.run_number }}"
+
+      - name: Start Staging Slot run f0rest
+        run: az webapp start --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.APP_NAME }} --slot staging
+
+  swap:
+    name: Swap that donkey 🐴
+    needs: staging
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Staging Ping
+        id: staging_ping
+        run: echo "::set-output name=value::$(./scripts/polling.sh ${{ env.STAGING_ENDPOINT }})"
+
+      - name: Perform Swap
+        if: ${{ steps.staging_ping.outputs.value == 'SERVER HEALTHY' }}
+        run: az webapp deployment slot swap --action swap --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.APP_NAME }} --slot staging --target-slot production
+
+      - name: Production Ping
+        id: production_ping
+        run: echo "::set-output name=value::$(./scripts/polling.sh ${{ env.PRODUCTION_ENDPOINT }})"
+
+      - name: Reset Swap
+        if: ${{ steps.production_ping.outputs.value == 'NO MORE TRIES HOCHACHO' }}
+        run: |
+          az webapp deployment slot swap --action reset --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.APP_NAME }} --slot staging --target-slot production
+          exit 1
+
+  revert:
+    name: Revert
+    needs: swap
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: rollback
+
+    steps:
+      - uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Start Staging
+        run: az webapp start --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.APP_NAME }} --slot staging
+
+      - name: Rollback Swap
+        run: az webapp deployment slot swap --action swap --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.APP_NAME }} --slot staging --target-slot production
+
+      - name: Shut down Staging
+        run: az webapp stop --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.APP_NAME }} --slot staging
+
+  cleanup:
+    name: Cleanup
+    needs: swap
+    if: ${{ always() && github.ref == 'refs/heads/master' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Shut down Staging
+        run: az webapp stop --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.APP_NAME }} --slot staging
