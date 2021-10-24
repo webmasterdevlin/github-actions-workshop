@@ -66,7 +66,7 @@ while [[ true ]]; do
   let "count++"
 
   if [[ $count -ge $maxCount ]]; then
-    echo "NO MORE TRIES HOCHACHO"
+    echo "NO MORE TRIES"
     exit 1
   fi
 
