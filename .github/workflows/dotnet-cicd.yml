@@ -93,7 +93,7 @@ jobs:
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_POI }}
           images: "${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.CONTAINER_NAME }}:${{ github.run_number }}"
 
-      - name: Start Staging Slot run f0rest
+      - name: Start Staging Slot
         run: az webapp start --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.APP_NAME }} --slot staging
 
   swap:
